@@ -1,0 +1,377 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// SQLite는 enum을 지원하지 않으므로 String으로 사용
+
+// 사용자
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  passwordHash  String
+  role          String   @default("user") // user, admin
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 관계
+  character     Character?
+  posts         Post[]
+  comments      Comment[]
+  items         UserItem[]
+  battles       BattleParticipant[]
+  quests        UserQuest[]
+  dms           DMChat[] @relation("Sender")
+  dmReceivers   DMChat[] @relation("Receiver")
+  pet           Pet?
+
+  @@map("users")
+}
+
+// 캐릭터 (멤버)
+model Character {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  firstName     String   // 이름
+  lastName      String   // 성
+  quote         String?  // 인물 한마디
+  catchphrase   String?  // 캐치프라이즈
+  name          String   // 전체 이름 (firstName + lastName, 호환성 유지)
+  profileImage  String?
+  portraitImage String?  // 전신 이미지
+  description   String?
+  background    String?
+  
+  // 스탯 (1-5)
+  attack        Int      @default(1)
+  defense       Int      @default(1)
+  agility       Int      @default(1)
+  luck          Int      @default(1)
+  
+  hp            Int      @default(100)
+  maxHp         Int      @default(100)
+  
+  galleon       Int      @default(0)  // 소지금
+  house         String?  // 기숙사: GRYFFINDOR, SLYTHERIN, HUFFLEPUFF, RAVENCLAW
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 관계
+  equippedItems UserItem[] @relation("EquippedItems")
+  relationships CharacterRelationship[] @relation("CharacterA")
+  relationships2 CharacterRelationship[] @relation("CharacterB")
+  posts         Post[]
+  myRoom        MyRoom?
+  investigationResults InvestigationResult[] @relation("CharacterInvestigations")
+
+  @@map("characters")
+}
+
+// 캐릭터 관계
+model CharacterRelationship {
+  id          String   @id @default(cuid())
+  characterAId String
+  characterA   Character @relation("CharacterA", fields: [characterAId], references: [id], onDelete: Cascade)
+  characterBId String
+  characterB   Character @relation("CharacterB", fields: [characterBId], references: [id], onDelete: Cascade)
+  relationship String   // 관계 설명
+  createdAt    DateTime @default(now())
+
+  @@unique([characterAId, characterBId])
+  @@map("character_relationships")
+}
+
+// 게시판
+model Board {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // BoardType enum 대신 String 사용
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  posts       Post[]
+
+  @@map("boards")
+}
+
+// 게시글
+model Post {
+  id          String   @id @default(cuid())
+  boardId     String
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  characterId String?
+  character   Character? @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  
+  title       String
+  content     String
+  isPinned    Boolean  @default(false)
+  isLocked    Boolean  @default(false)
+  
+  // 게시판 타입별 추가 데이터 (JSON 문자열)
+  metadata    String?  // 캘린더 날짜, 투표 데이터, 인터렉티브 상태 등 (JSON.stringify로 저장)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  comments    Comment[]
+  votes       Vote[]
+  attachments PostAttachment[]
+
+  @@map("posts")
+}
+
+// 게시글 첨부파일
+model PostAttachment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url       String
+  filename  String
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  @@map("post_attachments")
+}
+
+// 댓글
+model Comment {
+  id          String   @id @default(cuid())
+  postId      String
+  post        Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  content     String
+  parentId    String?  // 대댓글용
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("comments")
+}
+
+// 투표 (인터렉티브 게시판용)
+model Vote {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  option    String
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@map("votes")
+}
+
+// 아이템
+model Item {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        String   // ItemType enum 대신 String 사용
+  imageUrl    String?
+  
+  // 아이템 효과 (JSON 문자열)
+  effects     String?  // 스탯 증가, 효과 등 (JSON.stringify로 저장)
+  
+  price       Int      @default(0)
+  isGacha     Boolean  @default(false) // 가챠 아이템 여부
+  rarity      Int      @default(1) // 1-5 레어도
+  createdAt   DateTime @default(now())
+
+  userItems   UserItem[]
+
+  @@map("items")
+}
+
+// 사용자 아이템
+model UserItem {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(1)
+  isEquipped  Boolean  @default(false)
+  characterId String?  // 장착된 캐릭터
+  character   Character? @relation("EquippedItems", fields: [characterId], references: [id], onDelete: SetNull)
+  acquiredAt  DateTime @default(now())
+
+  @@unique([userId, itemId])
+  @@map("user_items")
+}
+
+// 펫
+model Pet {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        String
+  imageUrl    String?
+  level       Int      @default(1)
+  exp         Int      @default(0)
+  hp          Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("pets")
+}
+
+// 전투
+model Battle {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        String   @default("raid") // raid, pvp
+  status      String   @default("pending") // pending, in_progress, completed, cancelled
+  turnOrder   String?  // 턴 순서 (JSON.stringify로 저장)
+  currentTurn Int      @default(0)
+  monsterHp   Int?
+  monsterMaxHp Int?
+  monsterData String?  // 몬스터 정보 (JSON.stringify로 저장)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants BattleParticipant[]
+  turns        BattleTurn[]
+
+  @@map("battles")
+}
+
+// 전투 참여자
+model BattleParticipant {
+  id          String   @id @default(cuid())
+  battleId    String
+  battle      Battle   @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  characterId String
+  hp          Int
+  maxHp       Int
+  order       Int      // 턴 순서
+  joinedAt    DateTime @default(now())
+
+  @@unique([battleId, userId])
+  @@map("battle_participants")
+}
+
+// 전투 턴
+model BattleTurn {
+  id          String   @id @default(cuid())
+  battleId    String
+  battle      Battle   @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  userId      String
+  action      String   // BattleAction enum 대신 String 사용
+  diceRoll    Int?     // 주사위 결과
+  statUsed    String?  // StatType enum 대신 String 사용
+  damage      Int?
+  targetId    String?  // 대상
+  success     Boolean?
+  turnNumber  Int
+  createdAt   DateTime @default(now())
+
+  @@map("battle_turns")
+}
+
+// 퀘스트
+model Quest {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  type        String   @default("main") // main, sub
+  rewards     String?  // 보상 (아이템, 골드 등, JSON.stringify로 저장)
+  requirements String? // 요구사항 (JSON.stringify로 저장)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userQuests  UserQuest[]
+
+  @@map("quests")
+}
+
+// 사용자 퀘스트
+model UserQuest {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questId     String
+  quest       Quest    @relation(fields: [questId], references: [id], onDelete: Cascade)
+  status      String   @default("PENDING") // QuestStatus enum 대신 String 사용
+  progress    String?  // 진행도 (JSON.stringify로 저장)
+  acceptedAt  DateTime @default(now())
+  completedAt DateTime?
+
+  @@unique([userId, questId])
+  @@map("user_quests")
+}
+
+
+// 디엠 채팅
+model DMChat {
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User     @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  message     String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@map("dm_chats")
+}
+
+// 마이룸 (스티커보드)
+model MyRoom {
+  id          String   @id @default(cuid())
+  characterId String   @unique
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  layout      String?  // 스티커보드 레이아웃 데이터 (JSON.stringify로 저장)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("my_rooms")
+}
+
+// 월드맵 위치
+model WorldMapLocation {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  imageUrl    String?
+  position    String?  // 좌표 (JSON.stringify로 저장)
+  isDiscovered Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  investigationResults InvestigationResult[] @relation("LocationInvestigations")
+
+  @@map("world_map_locations")
+}
+
+// 월드맵 위치와 조사 결과 연결
+model InvestigationResult {
+  id          String   @id @default(cuid())
+  characterId String
+  character   Character @relation("CharacterInvestigations", fields: [characterId], references: [id], onDelete: Cascade)
+  locationId  String?
+  location    WorldMapLocation? @relation("LocationInvestigations", fields: [locationId], references: [id], onDelete: SetNull)
+  locationName String? // 또는 locationId 사용
+  result      String
+  discoveredAt DateTime @default(now())
+
+  @@map("investigation_results")
+}
+
